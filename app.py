@@ -113,7 +113,7 @@ if "ID" in df.columns:
     df["ID"] = df["ID"].astype("string").str.strip()
 
 st.success(f"Loaded {len(df):,} rows and {len(raw.columns):,} original columns.")
-tab_overview, tab_quality, tab_outcomes, tab_predictors, tab_export, tab_exploratory, tab_claim= st.tabs(
+tab_overview, tab_quality, tab_outcomes, tab_predictors, tab_export, tab_exploratory, tab_claim, tab_nonrenewal= st.tabs(
     ["Overview", "Data quality", "Outcome construction", "Predictor screening", "Export","Exploratory analysis","Claim cost analysis", "Nonrenewal analysis"]
 )
 
