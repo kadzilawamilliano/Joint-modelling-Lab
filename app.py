@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-from exploratory_analysis import show_exploratory analysis
+from exploratory_analysis import show_exploratory_analysis
 
 st.set_page_config(
     page_title="Motor Insurance Research Lab",
