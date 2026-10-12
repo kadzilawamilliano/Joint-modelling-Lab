@@ -230,71 +230,190 @@ with tab_outcomes:
     if not has_target_fields:
         st.warning("Cannot construct this outcome: the dataset needs ID, Date_last_renewal, and Date_next_renewal.")
     else:
+        
         cutoff_ts = pd.Timestamp(cutoff)
-        ordered = df.sort_values(["ID", "Date_last_renewal", "_row_order"], na_position="last").copy()
-        ordered["_next_record_last_renewal"] = ordered.groupby("ID", dropna=False)["Date_last_renewal"].shift(-1)
-        ordered["_has_next_record"] = ordered.groupby("ID", dropna=False)["Date_last_renewal"].shift(-1).notna()
+
+        # Sort records chronologically within each ID.
+        ordered = df.sort_values(
+            ["ID", "Date_last_renewal", "_row_order"],
+            na_position="last",
+        ).copy()
+
+        # An ID must be present to link records reliably.
+        valid_id = (
+            ordered["ID"].notna()
+            & ordered["ID"].astype("string").str.strip().ne("")
+        )
+
+        # Detect the existence of the next row independently of its date.
+        # Missing IDs are not linked together.
+        next_row_order = (
+            ordered.groupby("ID", dropna=True)["_row_order"].shift(-1)
+        )
+        ordered["_has_next_record"] = (
+            next_row_order.notna() & valid_id
+        )
+
+        # Retrieve the next record's last-renewal date.
+        ordered["_next_record_last_renewal"] = (
+            ordered.groupby("ID", dropna=True)["Date_last_renewal"].shift(-1)
+        )
+
         next_dates = ordered["_next_record_last_renewal"]
         scheduled = ordered["Date_next_renewal"]
+        current_dates_valid = ordered["Date_last_renewal"].notna()
+
+        # A renewal is observed when the next record's last-renewal date
+        # exactly matches the current record's scheduled next-renewal date.
         observed_match = (
             ordered["_has_next_record"]
             & scheduled.notna()
             & next_dates.notna()
             & (next_dates == scheduled)
         )
-        # A following same-ID row that fails to align is ambiguous, not automatically a non-renewal.
-        has_following_but_mismatch = ordered["_has_next_record"] & scheduled.notna() & ~observed_match
+
+        # Restrict outcome classification to scheduled renewals observable
+        # by the selected cutoff.
         eligible = scheduled.notna() & (scheduled <= cutoff_ts)
-        outcome = pd.Series(pd.NA, index=ordered.index, dtype="Int64")
-        outcome.loc[eligible & observed_match] = 0
-        outcome.loc[eligible & ~ordered["_has_next_record"] & scheduled.notna()] = 1
-        outcome.loc[eligible & has_following_but_mismatch] = pd.NA
+
+        # A subsequent record that cannot be matched is ambiguous.
+        has_following_but_mismatch = (
+            eligible
+            & valid_id
+            & ordered["_has_next_record"]
+            & ~observed_match
+        )
+
+        # Start with unresolved outcomes.
+        outcome = pd.Series(
+            pd.NA,
+            index=ordered.index,
+            dtype="Int64",
+        )
+
+        # Classify only records with a valid ID and current renewal date.
+        reliable_current_record = valid_id & current_dates_valid
+
+        # 0 = a subsequent same-ID record confirms the renewal.
+        outcome.loc[
+            eligible & reliable_current_record & observed_match
+        ] = 0
+
+        # 1 = no subsequent record exists for this ID in the dataset.
+        # This is provisional non-renewal, not confirmed cancellation.
+        outcome.loc[
+            eligible
+            & reliable_current_record
+            & ~ordered["_has_next_record"]
+        ] = 1
+
+        # All other cases remain unresolved, including missing IDs,
+        # missing current dates, and unmatched subsequent records.
         ordered["policy_nonrenewal"] = outcome
         ordered["renewal_outcome_eligible"] = eligible
-        ordered["renewal_date_mismatch_flag"] = has_following_but_mismatch
-        # Restore to source row order for export/display.
-        target_df = ordered.sort_values("_row_order").copy()
-        n_eligible = int(target_df["renewal_outcome_eligible"].sum())
-        n_renewed = int((target_df["policy_nonrenewal"] == 0).sum())
-        n_nonrenewed = int((target_df["policy_nonrenewal"] == 1).sum())
-        n_mismatch = int(target_df["renewal_date_mismatch_flag"].sum())
-        n_unlabelled_eligible = int(
-            (target_df["renewal_outcome_eligible"] & target_df["policy_nonrenewal"].isna()).sum()
+        ordered["renewal_date_mismatch_flag"] = (
+            has_following_but_mismatch
         )
+
+        # Restore original upload order.
+        target_df = ordered.sort_values("_row_order").copy()
+
+        n_eligible = int(target_df["renewal_outcome_eligible"].sum())
+        n_renewed = int(
+            (target_df["policy_nonrenewal"] == 0).sum()
+        )
+        n_nonrenewed = int(
+            (target_df["policy_nonrenewal"] == 1).sum()
+        )
+        n_mismatch = int(
+            target_df["renewal_date_mismatch_flag"].sum()
+        )
+        n_unlabelled_eligible = int(
+            (
+                target_df["renewal_outcome_eligible"]
+                & target_df["policy_nonrenewal"].isna()
+            ).sum()
+        )
+
         q1, q2, q3, q4 = st.columns(4)
         q1.metric("Rows scheduled by cutoff", f"{n_eligible:,}")
         q2.metric("Observed renewals (0)", f"{n_renewed:,}")
-        q3.metric("No same-ID renewal observed (1)", f"{n_nonrenewed:,}")
-        q4.metric("Ambiguous date mismatches", f"{n_mismatch:,}")
-        st.caption(
-            f"Eligible rows without a usable label: {n_unlabelled_eligible:,}. "
-            "Rows whose scheduled renewal is after the cutoff are left unlabelled."
+        q3.metric(
+            "No same-ID renewal observed (1)",
+            f"{n_nonrenewed:,}",
         )
+        q4.metric("Ambiguous date mismatches", f"{n_mismatch:,}")
+
+        st.caption(
+            f"Eligible rows without a usable label: "
+            f"{n_unlabelled_eligible:,}. Rows whose scheduled renewal "
+            "is after the cutoff remain unlabelled."
+        )
+
         outcome_counts = pd.DataFrame({
-            "outcome": ["Renewed under same ID (0)", "No same-ID renewal observed (1)", "Eligible but unresolved"],
+            "outcome": [
+                "Renewed under same ID (0)",
+                "No same-ID renewal observed (1)",
+                "Eligible but unresolved",
+            ],
             "count": [
                 n_renewed,
                 n_nonrenewed,
                 n_unlabelled_eligible,
             ],
         })
-        st.dataframe(outcome_counts, use_container_width=True, hide_index=True)
+
+        st.dataframe(
+            outcome_counts,
+            use_container_width=True,
+            hide_index=True,
+        )
+
         if n_mismatch:
-            st.warning("Some IDs have a following record but its last-renewal date does not match the scheduled renewal. These cases are flagged and not labelled automatically.")
+            st.warning(
+                "Some eligible records have a subsequent same-ID row "
+                "whose last-renewal date does not match the scheduled "
+                "renewal. These cases remain unresolved."
+            )
+            mismatch_cols = [
+                c for c in [
+                    "ID",
+                    "Date_last_renewal",
+                    "Date_next_renewal",
+                    "_next_record_last_renewal",
+                ]
+                if c in target_df.columns
+            ]
             st.dataframe(
-                target_df.loc[target_df["renewal_date_mismatch_flag"],
-                              [c for c in ["ID", "Date_last_renewal", "Date_next_renewal", "_next_record_last_renewal"] if c in target_df]].head(100),
+                target_df.loc[
+                    target_df["renewal_date_mismatch_flag"],
+                    mismatch_cols,
+                ].head(100),
                 use_container_width=True,
             )
+
         if "Lapse" in target_df.columns:
-            st.markdown("**Diagnostic comparison with `Lapse` (not the target definition)**")
+            st.markdown(
+                "**Diagnostic comparison with `Lapse` "
+                "(not the target definition)**"
+            )
+            labelled = target_df["policy_nonrenewal"].notna()
             lapse_diag = pd.crosstab(
-                target_df.loc[target_df["policy_nonrenewal"].notna(), "policy_nonrenewal"],
-                target_df.loc[target_df["policy_nonrenewal"].notna(), "Lapse"],
+                target_df.loc[labelled, "policy_nonrenewal"],
+                target_df.loc[labelled, "Lapse"],
                 margins=True,
             )
-            st.dataframe(lapse_diag, use_container_width=True)
-            st.caption("`Lapse` is an aggregate count and may describe cancellations other than the specific same-ID renewal event. Use it for diagnostics, not as a substitute for this binary outcome.")
+            st.dataframe(
+                lapse_diag,
+                use_container_width=True,
+            )
+            st.caption(
+                "`Lapse` is an aggregate count and may describe "
+                "cancellations other than the specific same-ID renewal "
+                "event. Use it for diagnostics, not as a substitute "
+                "for this binary outcome."
+            )
+
         st.session_state["target_df"] = target_df
 
 with tab_predictors:
