@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from exploratory_analysis import show_exploratory_analysis
 from claim_cost_analysis import show_claim_cost_analysis
 from nonrenewal_analysis import show_nonrenewal_analysis
+from predictor_analysis import show_predictor_analysis
 
 st.set_page_config(
     page_title="Motor Insurance Research Lab",
@@ -19,7 +20,7 @@ st.caption("Data audit • Policy non-renewal construction • Predictor screeni
 st.markdown(
     """
     This app supports the exploratory and data-preparation stage of the research:
-    **Joint Modelling of Motor Insurance Claim Costs and Policy Non-Renewal Using Shared Random Effects.**
+    **Joint Modelling of Motor Insurance Claim Costs and Policy Non-central Using Shared Random Effects.**
 
     Upload the source CSV, inspect data quality, construct a provisional policy-level
     non-renewal indicator, and review candidate predictors before fitting models.
@@ -416,97 +417,11 @@ with tab_outcomes:
 
         st.session_state["target_df"] = target_df
 
+#with tab_predictors:
 with tab_predictors:
-    st.subheader("Candidate predictor screening")
-    st.markdown(
-        """
-        The lists below are **starting candidates based on subject-matter reasoning**, not a final statistical selection.
-        Confirm each variable's availability at the prediction date. Fit models using training data only, and evaluate
-        on a later period to reduce optimistic performance estimates.
-        """
-    )
-    claim_candidates = [
-        "Type_risk", "Area", "Second_driver", "Distribution_channel", "Payment",
-        "Seniority", "Premium", "Power", "Cylinder_capacity", "Year_matriculation",
-        "N_doors", "Type_fuel", "Length", "Weight", "Date_birth",
-        "Date_driving_licence",
-    ]
-    nonrenew_candidates = [
-        "Distribution_channel", "Payment", "Seniority", "Premium", "Type_risk",
-        "Area", "Second_driver", "Policies_in_force", "Max_policies", "Max_products",
-        "Power", "Cylinder_capacity", "Year_matriculation", "N_doors", "Type_fuel",
-        "Length", "Weight", "Date_birth", "Date_driving_licence",
-    ]
-    history_candidates = ["N_claims_history", "R_Claims_history"]
-    risky_or_target_cols = [
-        "ID", "Date_lapse", "Lapse", "Date_next_renewal", "Cost_claims_year",
-        "N_claims_year", "Value_vehicle"
-    ]
+    target_df = st.session_state.get("target_df")
+    show_predictor_analysis(df, target_df)
 
-    def present(items):
-        return [x for x in items if x in df.columns]
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("**Claim-cost model: initial candidates**")
-        st.write(present(claim_candidates))
-    with c2:
-        st.markdown("**Non-renewal model: initial candidates**")
-        st.write(present(nonrenew_candidates))
-
-    st.markdown("**Variables requiring special treatment**")
-    special = pd.DataFrame([
-        {"variable": "ID", "recommendation": "Use to identify repeated policy-product records / group random effect, not as an ordinary numeric predictor."},
-        {"variable": "N_claims_year", "recommendation": "Usually exclude when predicting same-year claim cost because it is only known after the year unfolds."},
-        {"variable": "Lapse / Date_lapse", "recommendation": "Do not use to predict the same non-renewal event; may directly encode or occur after the outcome."},
-        {"variable": "Value_vehicle", "recommendation": "Documented 31-Dec-2019 valuation; potential future-information leakage for earlier years."},
-        {"variable": "N_claims_history / R_Claims_history", "recommendation": "Include only after verifying they are calculated using information available by the prediction date, not the full future policy history."},
-        {"variable": "Policies_in_force / Max_policies / Max_products", "recommendation": "Potentially useful for non-renewal, but verify their reference period and whether they contain future/aggregate information."},
-        {"variable": "Premium", "recommendation": "May be useful, but confirm that the premium is known at the actual prediction point and consider whether pricing and renewal decisions are jointly determined."},
-    ])
-    st.dataframe(special, use_container_width=True, hide_index=True)
-
-    st.markdown("**Derived variables (calculated at last-renewal date)**")
-    derived = df.copy()
-    if "Date_last_renewal" in derived and "Date_birth" in derived:
-        derived["age_at_renewal"] = (
-            (derived["Date_last_renewal"] - derived["Date_birth"]).dt.days / 365.2425
-        )
-    if "Date_last_renewal" in derived and "Date_driving_licence" in derived:
-        derived["driving_experience_years"] = (
-            (derived["Date_last_renewal"] - derived["Date_driving_licence"]).dt.days / 365.2425
-        )
-    if "Date_last_renewal" in derived and "Year_matriculation" in derived:
-        derived["vehicle_age_years"] = (
-            derived["Date_last_renewal"].dt.year - derived["Year_matriculation"]
-        )
-    derived_cols = [c for c in ["age_at_renewal", "driving_experience_years", "vehicle_age_years"] if c in derived]
-    if derived_cols:
-        st.dataframe(derived[derived_cols].describe().T, use_container_width=True)
-        st.caption("Check negative and implausibly large values before retaining derived variables.")
-
-    st.markdown("**High-correlation / redundancy screen for numeric variables**")
-    numeric = df.select_dtypes(include="number").drop(columns=["_row_order"], errors="ignore")
-    if numeric.shape[1] >= 2:
-        corr = numeric.corr(numeric_only=True)
-        pairs = []
-        cols = list(corr.columns)
-        for i in range(len(cols)):
-            for j in range(i + 1, len(cols)):
-                value = corr.iloc[i, j]
-                if pd.notna(value) and abs(value) >= 0.8:
-                    pairs.append({"variable_1": cols[i], "variable_2": cols[j], "correlation": round(float(value), 3)})
-        if pairs:
-            st.dataframe(pd.DataFrame(pairs).sort_values("correlation", key=lambda s: s.abs(), ascending=False), use_container_width=True, hide_index=True)
-        else:
-            st.write("No numeric variable pairs with absolute correlation at least 0.80 were detected.")
-    else:
-        st.write("Not enough numeric variables for correlation screening.")
-
-    st.warning(
-        "Do not choose variables solely because they correlate with the outcome in the full dataset. "
-        "Use timing, actuarial rationale, missingness, redundancy, and training-only validation together."
-    )
 
 with tab_export:
     st.subheader("Export cleaned data and audit outputs")
