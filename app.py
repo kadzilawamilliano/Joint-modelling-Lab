@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 from exploratory_analysis import show_exploratory_analysis
+from claim_cost_analysis import show_claim_cost_analysis
 
 st.set_page_config(
     page_title="Motor Insurance Research Lab",
@@ -111,9 +112,8 @@ if "ID" in df.columns:
     df["ID"] = df["ID"].astype("string").str.strip()
 
 st.success(f"Loaded {len(df):,} rows and {len(raw.columns):,} original columns.")
-tab_overview, tab_quality, tab_outcomes, tab_predictors, tab_export, tab_exploratory= st.tabs(
-    ["Overview", "Data quality", "Outcome construction", "Predictor screening", "Export","Exploratory analysis",
-    ]
+tab_overview, tab_quality, tab_outcomes, tab_predictors, tab_export, tab_exploratory, tab_claim= st.tabs(
+    ["Overview", "Data quality", "Outcome construction", "Predictor screening", "Export","Exploratory analysis","Claim cost analysis"]
 )
 
 with tab_overview:
@@ -425,6 +425,8 @@ with tab_export:
 
 with tab_exploratory:
     show_exploratory_analysis(df)
+with tab_claim:
+     show_claim_cost_analysis(df)
 
 st.divider()
 st.caption("Research support tool. All outcome definitions and predictor choices require researcher review and documentation.")
