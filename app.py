@@ -423,7 +423,7 @@ with tab_export:
         """
     )
 
-with tab_explorattory:
+with tab_exploratory:
     show_exploratory_analysis(df)
 
 st.divider()
