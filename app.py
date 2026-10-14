@@ -8,6 +8,9 @@ from exploratory_analysis import show_exploratory_analysis
 from claim_cost_analysis import show_claim_cost_analysis
 from nonrenewal_analysis import show_nonrenewal_analysis
 from predictor_analysis import show_predictor_analysis
+from repeated_observation_analysis import (
+    show_repeated_observation_analysis
+)
 
 st.set_page_config(
     page_title="Motor Insurance Research Lab",
@@ -114,8 +117,8 @@ if "ID" in df.columns:
     df["ID"] = df["ID"].astype("string").str.strip()
 
 st.success(f"Loaded {len(df):,} rows and {len(raw.columns):,} original columns.")
-tab_overview, tab_quality, tab_outcomes, tab_predictors, tab_export, tab_exploratory, tab_claim, tab_nonrenewal= st.tabs(
-    ["Overview", "Data quality", "Outcome construction", "Predictor screening", "Export","Exploratory analysis","Claim cost analysis", "Nonrenewal analysis"]
+tab_overview, tab_quality, tab_outcomes, tab_predictors, tab_export, tab_exploratory, tab_claim, tab_nonrenewa,tab_repeated= st.tabs(
+    ["Overview", "Data quality", "Outcome construction", "Predictor screening", "Export","Exploratory analysis","Claim cost analysis", "Nonrenewal analysis", "Repeated observations"]
 )
 
 with tab_overview:
@@ -465,6 +468,9 @@ with tab_claim:
 with tab_nonrenewal:
     target_df = st.session_state.get("target_df")
     show_nonrenewal_analysis(target_df)
+with tab_repeated:
+    target_df = st.session_state.get("target_df")
+    show_repeated_observation_analysis(df, target_df)
 
 st.divider()
 st.caption("Research support tool. All outcome definitions and predictor choices require researcher review and documentation.")
