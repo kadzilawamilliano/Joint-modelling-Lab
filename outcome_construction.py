@@ -13,11 +13,11 @@ def construct_nonrenewal_outcome(df, cutoff_date):
     Construct a provisional same-ID policy non-renewal outcome.
 
     Outcome definition:
-        0 = A subsequent record with the same ID confirms renewal
-            through an exact renewal-date match.
+        0 = A subsequent same-ID record matches the scheduled
+            renewal date.
 
-        1 = No subsequent record exists for the same ID, and the
-            scheduled renewal date is on or before the cutoff.
+        1 = No subsequent same-ID record exists, and the scheduled
+            renewal date is on or before the cutoff.
 
         NA = The outcome cannot be classified under these rules.
 
@@ -42,13 +42,14 @@ def construct_nonrenewal_outcome(df, cutoff_date):
 
     data = df.copy()
 
-    # Preserve original row order for returning results.
+    # Preserve original row order.
     if "_row_order" not in data.columns:
         data["_row_order"] = np.arange(len(data))
 
-    # Standardise identifier and date fields.
+    # Standardise identifiers.
     data["ID"] = data["ID"].astype("string").str.strip()
 
+    # Standardise dates.
     for col in ["Date_last_renewal", "Date_next_renewal"]:
         data[col] = pd.to_datetime(
             data[col],
@@ -64,13 +65,13 @@ def construct_nonrenewal_outcome(df, cutoff_date):
         & data["ID"].str.strip().ne("")
     )
 
-    # Sort chronologically within each valid ID.
+    # Sort records chronologically within each ID.
     ordered = data.sort_values(
         ["ID", "Date_last_renewal", "_row_order"],
         na_position="last",
     ).copy()
 
-    # Detect a subsequent record independently of its date.
+    # Identify the next record under the same ID.
     next_row_order = (
         ordered.groupby("ID", dropna=True)["_row_order"].shift(-1)
     )
@@ -91,14 +92,14 @@ def construct_nonrenewal_outcome(df, cutoff_date):
     scheduled = ordered["Date_next_renewal"]
     next_dates = ordered["_next_record_last_renewal"]
 
-    # Eligibility is determined by the scheduled renewal date.
+    # A record is eligible if its scheduled renewal date
+    # falls on or before the cutoff.
     ordered["renewal_outcome_eligible"] = (
         scheduled.notna()
         & (scheduled <= cutoff_ts)
     )
 
-    # A matching subsequent record confirms renewal under this
-    # operational definition.
+    # Check for an exact renewal-date match.
     ordered["observed_renewal_match"] = (
         ordered["_has_next_record"]
         & scheduled.notna()
@@ -106,21 +107,22 @@ def construct_nonrenewal_outcome(df, cutoff_date):
         & (scheduled == next_dates)
     )
 
-    # A subsequent record exists but cannot confirm the expected
-    # renewal. These records remain unresolved.
+    # Flag eligible records with a subsequent record that
+    # does not match the scheduled renewal date.
     ordered["renewal_date_mismatch_flag"] = (
         ordered["renewal_outcome_eligible"]
         & ordered["_has_next_record"]
         & ~ordered["observed_renewal_match"]
     )
 
-    # Initialise all outcomes as unresolved.
+    # Initialise outcomes as unresolved.
     ordered["policy_nonrenewal"] = pd.Series(
         pd.NA,
         index=ordered.index,
         dtype="Int64",
     )
 
+    # Check whether the current record has the required fields.
     reliable_current_record = (
         ordered["ID"].notna()
         & ordered["ID"].str.strip().ne("")
@@ -130,7 +132,7 @@ def construct_nonrenewal_outcome(df, cutoff_date):
 
     eligible = ordered["renewal_outcome_eligible"]
 
-    # 0 = observed renewal.
+    # Outcome 0: observed renewal.
     confirmed_renewal = (
         eligible
         & reliable_current_record
@@ -142,8 +144,8 @@ def construct_nonrenewal_outcome(df, cutoff_date):
         "policy_nonrenewal",
     ] = 0
 
-    # 1 = provisional non-renewal.
-    # No later same-ID record is observed for an eligible record.
+    # Outcome 1: provisional non-renewal.
+    # This is based on the absence of a subsequent same-ID record.
     provisional_nonrenewal = (
         eligible
         & reliable_current_record
@@ -155,10 +157,10 @@ def construct_nonrenewal_outcome(df, cutoff_date):
         "policy_nonrenewal",
     ] = 1
 
-    # Return records in the original upload order.
+    # Return rows to their original order.
     result = ordered.sort_values("_row_order").copy()
 
-    # Explicit audit categories.
+    # Create explicit audit categories.
     result["outcome_status"] = "Unresolved"
 
     result.loc[
@@ -217,7 +219,7 @@ def construct_nonrenewal_outcome(df, cutoff_date):
 
 def build_outcome_diagnostics(target_df, cutoff_date):
     """
-    Produce explicit outcome counts and data-quality diagnostics.
+    Produce outcome counts and data-quality diagnostics.
     """
 
     data = target_df.copy()
@@ -276,22 +278,181 @@ def build_outcome_diagnostics(target_df, cutoff_date):
         ),
     ]
 
-    summary = pd.DataFrame(
+    return pd.DataFrame(
         measures,
         columns=["Measure", "Count"],
     )
 
-    return summary
+
+# ============================================================
+# 3. PROVISIONAL NON-RENEWAL DATE DIAGNOSTICS
+# ============================================================
+
+def show_provisional_nonrenewal_date_diagnostics(target_df):
+    """
+    Examine scheduled renewal dates among provisional
+    non-renewal records.
+    """
+
+    st.subheader("Provisional Non-Renewal Date Diagnostics")
+
+    st.write(
+        "This section examines the scheduled renewal dates of "
+        "records provisionally classified as non-renewals. "
+        "It helps assess the observation boundary but does not "
+        "independently confirm genuine non-renewal."
+    )
+
+    # Select provisional non-renewals.
+    provisional = target_df.loc[
+        target_df["policy_nonrenewal"].eq(1).fillna(False)
+    ].copy()
+
+    if provisional.empty:
+        st.info(
+            "There are no provisional non-renewal records to examine."
+        )
+        return
+
+    # Convert scheduled renewal dates to datetime.
+    provisional["Date_next_renewal"] = pd.to_datetime(
+        provisional["Date_next_renewal"],
+        errors="coerce",
+        dayfirst=True,
+    )
+
+    renewal_dates = provisional["Date_next_renewal"].dropna()
+
+    if renewal_dates.empty:
+        st.warning(
+            "No valid scheduled renewal dates were found among "
+            "the provisional non-renewal records."
+        )
+        return
+
+    earliest_date = renewal_dates.min()
+    latest_date = renewal_dates.max()
+
+    # --------------------------------------------------------
+    # Earliest and latest dates
+    # --------------------------------------------------------
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "Provisional non-renewals",
+        f"{len(provisional):,}",
+    )
+
+    col2.metric(
+        "Earliest scheduled renewal",
+        earliest_date.strftime("%d %b %Y"),
+    )
+
+    col3.metric(
+        "Latest scheduled renewal",
+        latest_date.strftime("%d %b %Y"),
+    )
+
+    st.write(
+        f"**Records with valid scheduled renewal dates:** "
+        f"{len(renewal_dates):,}"
+    )
+
+    st.write(
+        f"**Records with missing scheduled renewal dates:** "
+        f"{len(provisional) - len(renewal_dates):,}"
+    )
+
+    # --------------------------------------------------------
+    # Distribution by month
+    # --------------------------------------------------------
+
+    st.markdown("#### Distribution by Scheduled Renewal Month")
+
+    monthly_counts = (
+        renewal_dates
+        .dt.to_period("M")
+        .value_counts()
+        .sort_index()
+        .rename_axis("Scheduled renewal month")
+        .reset_index(name="Number of records")
+    )
+
+    monthly_counts["Scheduled renewal month"] = (
+        monthly_counts["Scheduled renewal month"].astype(str)
+    )
+
+    st.dataframe(
+        monthly_counts,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.bar_chart(
+        monthly_counts.set_index("Scheduled renewal month")[
+            "Number of records"
+        ]
+    )
+
+    # --------------------------------------------------------
+    # Distribution by year
+    # --------------------------------------------------------
+
+    st.markdown("#### Distribution by Scheduled Renewal Year")
+
+    yearly_counts = (
+        renewal_dates
+        .dt.year
+        .value_counts()
+        .sort_index()
+        .rename_axis("Scheduled renewal year")
+        .reset_index(name="Number of records")
+    )
+
+    st.dataframe(
+        yearly_counts,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # --------------------------------------------------------
+    # Download date diagnostics
+    # --------------------------------------------------------
+
+    st.download_button(
+        "Download provisional non-renewal date records",
+        data=provisional.to_csv(index=False).encode("utf-8"),
+        file_name="provisional_nonrenewal_date_records.csv",
+        mime="text/csv",
+        key="download_provisional_nonrenewal_dates",
+    )
+
+    st.download_button(
+        "Download monthly non-renewal date counts",
+        data=monthly_counts.to_csv(index=False).encode("utf-8"),
+        file_name="provisional_nonrenewal_monthly_counts.csv",
+        mime="text/csv",
+        key="download_provisional_nonrenewal_months",
+    )
+
+    st.caption(
+        "Interpretation: these dates describe when the policies "
+        "were scheduled to renew. They do not establish when a "
+        "policy actually failed to renew. The absence of a later "
+        "record can also reflect incomplete follow-up or other "
+        "data limitations."
+    )
 
 
 # ============================================================
-# 3. STREAMLIT USER INTERFACE
+# 4. STREAMLIT USER INTERFACE
 # ============================================================
 
 def show_outcome_construction(df, cutoff_date):
     """
     Display claim-cost checks, outcome construction, diagnostics,
-    and download options.
+    date analysis, and download options.
     """
 
     st.header("Outcome Construction and Validation")
@@ -302,7 +463,7 @@ def show_outcome_construction(df, cutoff_date):
     )
 
     # --------------------------------------------------------
-    # Claim-cost outcome
+    # A. Annual claim-cost outcome
     # --------------------------------------------------------
 
     st.subheader("A. Annual claim-cost outcome")
@@ -369,7 +530,7 @@ def show_outcome_construction(df, cutoff_date):
     st.divider()
 
     # --------------------------------------------------------
-    # Construct outcome
+    # B. Construct the outcome
     # --------------------------------------------------------
 
     st.subheader("B. Construct the provisional non-renewal outcome")
@@ -387,7 +548,7 @@ def show_outcome_construction(df, cutoff_date):
     st.session_state["target_df"] = target_df
 
     # --------------------------------------------------------
-    # Headline counts
+    # C. Headline outcome counts
     # --------------------------------------------------------
 
     eligible = target_df["renewal_outcome_eligible"].fillna(False)
@@ -447,16 +608,18 @@ def show_outcome_construction(df, cutoff_date):
 
     classified_count = int((renewed | nonrenewed).sum())
 
-    st.write(
-        f"**Classified outcomes:** {classified_count:,} of "
-        f"{len(target_df):,} records "
-        f"({100 * classified_count / len(target_df):.1f}%)."
-        if len(target_df)
-        else "No records available."
-    )
+    if len(target_df):
+        st.write(
+            f"**Classified outcomes:** {classified_count:,} of "
+            f"{len(target_df):,} records "
+            f"({100 * classified_count / len(target_df):.1f}%)."
+        )
+    else:
+        st.write("No records available.")
 
     st.write(
-        f"**Eligible but unresolved:** {int(unresolved_eligible.sum()):,}."
+        f"**Eligible but unresolved:** "
+        f"{int(unresolved_eligible.sum()):,}."
     )
 
     st.caption(
@@ -466,10 +629,18 @@ def show_outcome_construction(df, cutoff_date):
     )
 
     # --------------------------------------------------------
-    # Detailed status table
+    # D. NEW: Provisional non-renewal date diagnostics
     # --------------------------------------------------------
 
-    st.subheader("D. Detailed outcome-status breakdown")
+    show_provisional_nonrenewal_date_diagnostics(target_df)
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # E. Detailed status table
+    # --------------------------------------------------------
+
+    st.subheader("E. Detailed outcome-status breakdown")
 
     status_counts = (
         target_df["outcome_status"]
@@ -495,10 +666,10 @@ def show_outcome_construction(df, cutoff_date):
     )
 
     # --------------------------------------------------------
-    # Diagnostic table
+    # F. Diagnostic summary table
     # --------------------------------------------------------
 
-    st.subheader("E. Data-quality diagnostic")
+    st.subheader("F. Data-quality diagnostic")
 
     diagnostics = build_outcome_diagnostics(
         target_df,
@@ -512,12 +683,12 @@ def show_outcome_construction(df, cutoff_date):
     )
 
     # --------------------------------------------------------
-    # Lapse diagnostic
+    # G. Comparison with source Lapse variable
     # --------------------------------------------------------
 
     if "Lapse" in target_df.columns:
 
-        st.subheader("F. Comparison with the source Lapse variable")
+        st.subheader("G. Comparison with the source Lapse variable")
 
         st.caption(
             "This is a diagnostic comparison only. Lapse is not used "
@@ -549,10 +720,10 @@ def show_outcome_construction(df, cutoff_date):
             )
 
     # --------------------------------------------------------
-    # Review and export
+    # H. Review unresolved observations
     # --------------------------------------------------------
 
-    st.subheader("G. Review unresolved observations")
+    st.subheader("H. Review records without a binary outcome")
 
     unresolved_rows = target_df.loc[
         target_df["policy_nonrenewal"].isna()
@@ -565,31 +736,38 @@ def show_outcome_construction(df, cutoff_date):
 
     if not unresolved_rows.empty:
 
+        review_columns = [
+            col for col in [
+                "ID",
+                "Date_last_renewal",
+                "Date_next_renewal",
+                "_next_record_last_renewal",
+                "_has_next_record",
+                "renewal_outcome_eligible",
+                "renewal_date_mismatch_flag",
+                "outcome_status",
+            ]
+            if col in unresolved_rows.columns
+        ]
+
         st.dataframe(
-            unresolved_rows[
-                [
-                    col for col in [
-                        "ID",
-                        "Date_last_renewal",
-                        "Date_next_renewal",
-                        "_next_record_last_renewal",
-                        "_has_next_record",
-                        "renewal_outcome_eligible",
-                        "renewal_date_mismatch_flag",
-                        "outcome_status",
-                    ]
-                    if col in unresolved_rows.columns
-                ]
-            ].head(100),
+            unresolved_rows[review_columns].head(100),
             use_container_width=True,
             hide_index=True,
         )
+
+    # --------------------------------------------------------
+    # I. Download files
+    # --------------------------------------------------------
+
+    st.subheader("I. Export outcome files")
 
     st.download_button(
         "Download complete outcome dataset",
         data=target_df.to_csv(index=False).encode("utf-8"),
         file_name="motor_insurance_outcome_audit.csv",
         mime="text/csv",
+        key="download_complete_outcome_dataset",
     )
 
     st.download_button(
@@ -597,6 +775,7 @@ def show_outcome_construction(df, cutoff_date):
         data=diagnostics.to_csv(index=False).encode("utf-8"),
         file_name="outcome_diagnostics.csv",
         mime="text/csv",
+        key="download_outcome_diagnostics",
     )
 
     st.download_button(
@@ -604,9 +783,14 @@ def show_outcome_construction(df, cutoff_date):
         data=status_counts.to_csv(index=False).encode("utf-8"),
         file_name="outcome_status_counts.csv",
         mime="text/csv",
+        key="download_outcome_status_counts",
     )
 
-    st.subheader("H. Research interpretation")
+    # --------------------------------------------------------
+    # J. Research interpretation
+    # --------------------------------------------------------
+
+    st.subheader("J. Research interpretation")
 
     st.info(
         """
