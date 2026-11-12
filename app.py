@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+from risk_category_audit import risk_category_audit
 from exploratory_analysis import show_exploratory_analysis
 from claim_cost_analysis import show_claim_cost_analysis
 from nonrenewal_analysis import show_nonrenewal_analysis
@@ -118,8 +119,8 @@ if "ID" in df.columns:
     df["ID"] = df["ID"].astype("string").str.strip()
 
 st.success(f"Loaded {len(df):,} rows and {len(raw.columns):,} original columns.")
-tab_overview, tab_quality, tab_outcomes, tab_predictors, tab_export, tab_exploratory, tab_claim, tab_nonrenewal,tab_repeated= st.tabs(
-    ["Overview", "Data quality", "Outcome construction", "Predictor screening", "Export","Exploratory analysis","Claim cost analysis", "Nonrenewal analysis", "Repeated observations"]
+tab_overview, tab_quality, tab_outcomes, tab_predictors, tab_export, tab_exploratory, tab_claim, tab_nonrenewal,tab_repeated, tab-risk= st.tabs(
+    ["Overview", "Data quality", "Outcome construction", "Predictor screening", "Export","Exploratory analysis","Claim cost analysis", "Nonrenewal analysis", "Repeated observations", "Risk Category Analysis"]
 )
 
 with tab_overview:
@@ -266,6 +267,9 @@ with tab_nonrenewal:
 with tab_repeated:
     target_df = st.session_state.get("target_df")
     show_repeated_observation_analysis(df, target_df)
+with tab_risk:
+    target_df = st.session_state.get("target_df")
 
+    risk_summary = risk_category_audit(df)
 st.divider()
 st.caption("Research support tool. All outcome definitions and predictor choices require researcher review and documentation.")
