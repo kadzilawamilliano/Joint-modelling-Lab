@@ -147,6 +147,7 @@ def show_passenger_car_audit(
     outcome_col=None,
     id_col=ID_COL,
     risk_col=RISK_COL,
+    audited_df=None,
 ):
     """
     Display the passenger-car preliminary data audit in Streamlit.
@@ -164,10 +165,11 @@ def show_passenger_car_audit(
     )
 
     try:
-        passenger_cars = prepare_passenger_car_data(
-            df,
-            risk_col=risk_col,
+        passenger_cars = (audited_df.copy()
+           if audited_df is not None
+           else prepare_passenger_car_data(df, risk_col=risk_col)
         )
+        
 
         identifier_stats = calculate_identifier_statistics(
             passenger_cars,
