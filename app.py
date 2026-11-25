@@ -17,7 +17,10 @@ from predictor_analysis import show_predictor_analysis
 from repeated_observation_analysis import (
     show_repeated_observation_analysis
 )
-from outcome_construction import show_outcome_construction
+from outcome_construction import (
+    show_outcome_construction,
+    construct_nonrenewal_outcome
+)
 
 st.set_page_config(
     page_title="Motor Insurance Research Lab",
