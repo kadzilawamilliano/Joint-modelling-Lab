@@ -276,30 +276,31 @@ with tab_nonrenewal:
 with tab_repeated:
     target_df = st.session_state.get("target_df")
     show_repeated_observation_analysis(df, target_df)
-with tab_risk:
-    target_df = st.session_state.get("target_df")
-
-    risk_summary = risk_category_audit(df)
 
 with tab_risk:
-
     st.header("Passenger-Car Research Dataset")
 
-    # Step 1: Filter the original dataset
+    # 1. Display the original risk-category audit
+    risk_category_audit(df)
+
+    st.divider()
+
+    # 2. Filter the original dataset to passenger cars (Type_risk = 3)
     passenger_car_df = prepare_passenger_car_data(df)
 
-    # Step 2: Construct the non-renewal outcome
-    # using your existing classification function
+    # 3. Construct the non-renewal outcome using the existing function
     passenger_car_target_df = construct_nonrenewal_outcome(
         passenger_car_df,
-        cutoff_date
+        cutoff
     )
 
-    # Step 3: Run the audit on the classified subset
+    # 4. Save the passenger-car dataset separately
+    st.session_state["passenger_car_target_df"] = passenger_car_target_df
+
+    # 5. Display the passenger-car audit
     show_passenger_car_audit(
         df,
         outcome_col="policy_nonrenewal",
         audited_df=passenger_car_target_df
     )
-st.divider()
-st.caption("Research support tool. All outcome definitions and predictor choices require researcher review and documentation.")
+    
