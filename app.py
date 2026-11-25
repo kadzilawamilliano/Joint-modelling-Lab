@@ -118,6 +118,9 @@ has_target_fields = required_for_target.issubset(df.columns)
 df["_row_order"] = np.arange(len(df))
 if "ID" in df.columns:
     df["ID"] = df["ID"].astype("string").str.strip()
+st.subheader("Debug: Dataset columns")
+
+st.write(list(df.columns))
 
 st.success(f"Loaded {len(df):,} rows and {len(raw.columns):,} original columns.")
 tab_overview, tab_quality, tab_outcomes, tab_predictors, tab_export, tab_exploratory, tab_claim, tab_nonrenewal,tab_repeated, tab_risk= st.tabs(
