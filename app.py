@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+from passenger_car_audit import show_passenger_car_audit
 from risk_category_audit import risk_category_audit
 from exploratory_analysis import show_exploratory_analysis
 from claim_cost_analysis import show_claim_cost_analysis
@@ -271,5 +272,13 @@ with tab_risk:
     target_df = st.session_state.get("target_df")
 
     risk_summary = risk_category_audit(df)
+
+with tab_risk:
+    passenger_car_df, passenger_car_audit_summary = (
+        show_passenger_car_audit(
+            df,
+            outcome_col="policy_nonrenewal"
+        )
+    )
 st.divider()
 st.caption("Research support tool. All outcome definitions and predictor choices require researcher review and documentation.")
