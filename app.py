@@ -4,7 +4,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-from passenger_car_audit import show_passenger_car_audit
+from passenger_car_audit import (
+    prepare_passenger_car_data,
+    show_passenger_car_audit
+)
+
 from risk_category_audit import risk_category_audit
 from exploratory_analysis import show_exploratory_analysis
 from claim_cost_analysis import show_claim_cost_analysis
@@ -275,11 +279,24 @@ with tab_risk:
     risk_summary = risk_category_audit(df)
 
 with tab_risk:
-    passenger_car_df, passenger_car_audit_summary = (
-        show_passenger_car_audit(
-            df,
-            outcome_col="policy_nonrenewal"
-        )
+
+    st.header("Passenger-Car Research Dataset")
+
+    # Step 1: Filter the original dataset
+    passenger_car_df = prepare_passenger_car_data(df)
+
+    # Step 2: Construct the non-renewal outcome
+    # using your existing classification function
+    passenger_car_target_df = construct_nonrenewal_outcome(
+        passenger_car_df,
+        cutoff_date
+    )
+
+    # Step 3: Run the audit on the classified subset
+    show_passenger_car_audit(
+        df,
+        outcome_col="policy_nonrenewal",
+        audited_df=passenger_car_target_df
     )
 st.divider()
 st.caption("Research support tool. All outcome definitions and predictor choices require researcher review and documentation.")
